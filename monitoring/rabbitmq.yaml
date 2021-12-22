@@ -48,7 +48,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: rabbitmq-np
+  name: rabbitmq
   namespace: monitoring
   labels:
     app: rabbitmq
@@ -64,28 +64,7 @@ spec:
     - port: 15672
       targetPort: 15672
       name: http
-      protocol: TCP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: rabbitmq
-  namespace: monitoring
-  labels:
-    app: rabbitmq
-spec:
-  type: ClusterIP
-  selector:
-    app: rabbitmq
-  ports:
-    - port: 5672
-      targetPort: 5672
-      name: amqp
-      protocol: TCP
-    - port: 15672
-      targetPort: 15672
-      name: http
-      protocol: TCP
+      protocol: TCPgit
 ---
 apiVersion: v1
 kind: PersistentVolume
@@ -96,6 +75,6 @@ spec:
   accessModes:
   - ReadWriteOnce
   capacity:
-      storage: 5Gi
+      storage: 10Gi
   hostPath:
       path: /data/rabbitmq
