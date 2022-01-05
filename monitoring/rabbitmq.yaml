@@ -3,47 +3,97 @@ kind: StatefulSet
 metadata:
   name: rabbitmq
   namespace: monitoring
+  labels:
+    app: rabbitmq
 spec:
   serviceName: rabbitmq
+  replicas: 1
   selector:
     matchLabels:
       app: rabbitmq
   template:
     metadata:
       labels:
-        app: rabbitmq
+        app: rabbitmq    
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "15692"
         prometheus.io/path: "/metrics"
     spec:
+      serviceAccountName: rabbitmq
+      initContainers:
+      - name: config
+        image: busybox
+        command: ['/bin/sh', '-c', 'cp /tmp/config/rabbitmq.conf /config/rabbitmq.conf && ls -l /config/ && cp /tmp/config/enabled_plugins /etc/rabbitmq/enabled_plugins']
+        volumeMounts:
+        - name: config
+          mountPath: /tmp/config/
+          readOnly: false
+        - name: config-file
+          mountPath: /config/
+        - name: plugins-file
+          mountPath: /etc/rabbitmq/
       containers:
         - name: rabbitmq
           image: rabbitmq:3.8.3-management
           ports:
-            - name: http
-              protocol: TCP
-              containerPort: 15672
-            - name: amqp
-              protocol: TCP
-              containerPort: 5672
-          livenessProbe:
-            exec:
-              command:
-                - "rabbitmq-diagnostics"
-                - "ping"
-            initialDelaySeconds: 10
-            periodSeconds: 30
-            timeoutSeconds: 15
-          readinessProbe:
-            exec:
-              command:
-                - "rabbitmq-diagnostics"
-                - "check_port_connectivity"
-            initialDelaySeconds: 10
-            periodSeconds: 30
-            timeoutSeconds: 15
-        
+            - containerPort: 4369
+              name: discovery
+            - containerPort: 5672
+              name: amqp
+            - containerPort: 15692
+              name: prometheus
+            - containerPort: 15672
+              name: management
+          env:
+          - name: RABBIT_POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: RABBIT_POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: RABBITMQ_NODENAME
+            value: rabbit@$(RABBIT_POD_NAME).rabbitmq.$(RABBIT_POD_NAMESPACE).svc.cluster.local
+          - name: RABBITMQ_USE_LONGNAME 
+            value: "true"
+          - name: RABBITMQ_CONFIG_FILE
+            value: "/config/rabbitmq"
+          - name: RABBITMQ_ERLANG_COOKIE
+            valueFrom:
+              secretKeyRef:
+                name: rabbit-secret
+                key: RABBITMQ_ERLANG_COOKIE
+          - name: K8S_HOSTNAME_SUFFIX
+            value: .rabbitmq.$(RABBIT_POD_NAMESPACE).svc.cluster.local
+          volumeMounts:
+          - name: data
+            mountPath: /var/lib/rabbitmq
+            readOnly: false
+          - name: config-file
+            mountPath: /config/
+          - name: plugins-file
+            mountPath: /etc/rabbitmq/
+      volumes:
+      - name: config-file
+        emptyDir: {}
+      - name: plugins-file
+        emptyDir: {}
+      - name: config
+        configMap:
+          name: rabbitmq-config
+          defaultMode: 0755
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "standard"
+      resources:
+        requests:
+          storage: 50Mi
 ---
 apiVersion: v1
 kind: Service
@@ -57,14 +107,18 @@ spec:
   selector:
     app: rabbitmq
   ports:
+    - port: 4369
+      targetPort: 4369
+      name: discovery
     - port: 5672
       targetPort: 5672
       name: amqp
-      protocol: TCP
+    - port: 15692
+      targetPort: 15692
+      name: prometheus
     - port: 15672
       targetPort: 15672
-      name: http
-      protocol: TCPgit
+      name: management
 ---
 apiVersion: v1
 kind: PersistentVolume
